@@ -1,25 +1,49 @@
 'use client'
 
+import { useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useNotifications } from '@/contexts/NotificationContext'
 import { formatRelativeTime } from '@/lib/utils'
 import { LoadingSpinner, Card, ErrorMessageCard } from '@/components/ui'
 import { useSmartDataFetching } from '@/hooks'
-import { listUsers } from '@/actions/users'
+import { deleteUser, listUsers, updateUser } from '@/actions/users'
+import { getErrorMessage } from '@/actions/http'
+import PasswordResetModal from '@/components/PasswordResetModal'
 import { 
   UserIcon,
-  ShieldCheckIcon
+  ShieldCheckIcon,
+  PencilIcon,
+  TrashIcon,
+  KeyIcon,
+  XMarkIcon,
+  CheckIcon
 } from '@heroicons/react/24/outline'
 import AdminRouteGuard from '@/components/AdminRouteGuard'
-import { type User, type UsersApiResponse } from '@/types/user'
+import { USER_ROLES, USER_STATUSES, type User, type UserRole, type UserStatus, type UsersApiResponse } from '@/types/user'
 
 export default function UsersPage() {
   const { user: currentUser } = useAuth()
+  const { addNotification } = useNotifications()
+  const [editingUserId, setEditingUserId] = useState<string | null>(null)
+  const [resetUser, setResetUser] = useState<User | null>(null)
+  const [savingUserId, setSavingUserId] = useState<string | null>(null)
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState<{
+    email: string
+    role: UserRole
+    status: UserStatus
+  }>({
+    email: '',
+    role: 'USER',
+    status: 'ACTIVE'
+  })
 
   // Use smart data fetching with caching
   const { 
     data: usersData, 
     loading, 
-    error 
+    error,
+    refetch
   } = useSmartDataFetching<User[]>({
     cacheKey: 'users:list',
     fetcher: ({ signal }) => listUsers(signal),
@@ -30,6 +54,80 @@ export default function UsersPage() {
   })
 
   const users = usersData || []
+
+  const startEditing = (user: User) => {
+    setEditingUserId(user.id)
+    setEditForm({
+      email: user.email,
+      role: user.role,
+      status: user.status
+    })
+  }
+
+  const cancelEditing = () => {
+    setEditingUserId(null)
+    setEditForm({ email: '', role: 'USER', status: 'ACTIVE' })
+  }
+
+  const handleUpdateUser = async (userId: string) => {
+    try {
+      setSavingUserId(userId)
+      await updateUser(userId, editForm)
+      addNotification({
+        type: 'success',
+        title: 'User Updated',
+        message: 'User details were updated successfully',
+        duration: 5000
+      })
+      cancelEditing()
+      await refetch()
+    } catch (updateError) {
+      addNotification({
+        type: 'error',
+        title: 'Update Failed',
+        message: getErrorMessage(updateError, 'Failed to update user'),
+        duration: 5000
+      })
+    } finally {
+      setSavingUserId(null)
+    }
+  }
+
+  const handleDeleteUser = async (user: User) => {
+    if (user.id === currentUser?.id) {
+      addNotification({
+        type: 'error',
+        title: 'Delete Blocked',
+        message: 'You cannot delete your own account',
+        duration: 5000
+      })
+      return
+    }
+
+    const confirmed = window.confirm(`Delete ${user.email}? This cannot be undone.`)
+    if (!confirmed) return
+
+    try {
+      setDeletingUserId(user.id)
+      await deleteUser(user.id)
+      addNotification({
+        type: 'success',
+        title: 'User Deleted',
+        message: `${user.email} was deleted successfully`,
+        duration: 5000
+      })
+      await refetch()
+    } catch (deleteError) {
+      addNotification({
+        type: 'error',
+        title: 'Delete Failed',
+        message: getErrorMessage(deleteError, 'Failed to delete user'),
+        duration: 5000
+      })
+    } finally {
+      setDeletingUserId(null)
+    }
+  }
 
   const UsersContent = () => {
     if (loading) {
@@ -113,7 +211,9 @@ export default function UsersPage() {
                     <tr>
                       <th className="px-3 xs:px-4 md:px-6 py-3 text-left text-xs xs:text-sm font-medium text-gray-500 uppercase tracking-wider">User</th>
                       <th className="px-3 xs:px-4 md:px-6 py-3 text-left text-xs xs:text-sm font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                      <th className="px-3 xs:px-4 md:px-6 py-3 text-left text-xs xs:text-sm font-medium text-gray-500 uppercase tracking-wider">Status</th>
                       <th className="px-3 xs:px-4 md:px-6 py-3 text-left text-xs xs:text-sm font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                      <th className="px-3 xs:px-4 md:px-6 py-3 text-right text-xs xs:text-sm font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -127,22 +227,117 @@ export default function UsersPage() {
                               </div>
                             </div>
                             <div className="ml-3 xs:ml-4">
-                              <div className="text-xs xs:text-sm font-medium text-gray-900">{user.email}</div>
+                              {editingUserId === user.id ? (
+                                <input
+                                  type="email"
+                                  value={editForm.email}
+                                  onChange={(event) => setEditForm({ ...editForm, email: event.target.value })}
+                                  className="w-56 rounded-md border border-gray-300 px-2 py-1 text-xs xs:text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                />
+                              ) : (
+                                <div className="text-xs xs:text-sm font-medium text-gray-900">{user.email}</div>
+                              )}
                               <div className="text-xs text-gray-500">ID: {user.id.substring(0, 8)}...</div>
                             </div>
                           </div>
                         </td>
                         <td className="px-3 xs:px-4 md:px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                            user.role === 'ADMIN' ? 'bg-red-100 text-red-800' :
-                            user.role === 'MANAGER' ? 'bg-blue-100 text-blue-800' :
-                            'bg-green-100 text-green-800'
-                          }`}>
-                            {user.role}
-                          </span>
+                          {editingUserId === user.id ? (
+                            <select
+                              value={editForm.role}
+                              onChange={(event) => setEditForm({ ...editForm, role: event.target.value as UserRole })}
+                              className="rounded-md border border-gray-300 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
+                              {USER_ROLES.map((role) => (
+                                <option key={role} value={role}>{role}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                              user.role === 'ADMIN' ? 'bg-red-100 text-red-800' :
+                              user.role === 'MANAGER' ? 'bg-blue-100 text-blue-800' :
+                              'bg-green-100 text-green-800'
+                            }`}>
+                              {user.role}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 xs:px-4 md:px-6 py-4 whitespace-nowrap">
+                          {editingUserId === user.id ? (
+                            <select
+                              value={editForm.status}
+                              onChange={(event) => setEditForm({ ...editForm, status: event.target.value as UserStatus })}
+                              className="rounded-md border border-gray-300 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
+                              {USER_STATUSES.map((status) => (
+                                <option key={status} value={status}>{status}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                              user.status === 'ACTIVE' ? 'bg-green-100 text-green-800' :
+                              user.status === 'SUSPENDED' ? 'bg-red-100 text-red-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {user.status}
+                            </span>
+                          )}
                         </td>
                         <td className="px-3 xs:px-4 md:px-6 py-4 whitespace-nowrap text-xs xs:text-sm text-gray-500">
                           {formatRelativeTime(new Date(user.createdAt))}
+                        </td>
+                        <td className="px-3 xs:px-4 md:px-6 py-4 whitespace-nowrap text-right">
+                          {editingUserId === user.id ? (
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateUser(user.id)}
+                                disabled={savingUserId === user.id}
+                                className="inline-flex items-center rounded-md bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                              >
+                                <CheckIcon className="mr-1 h-4 w-4" />
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEditing}
+                                className="inline-flex items-center rounded-md border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                              >
+                                <XMarkIcon className="mr-1 h-4 w-4" />
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => startEditing(user)}
+                                className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                                title="Edit user"
+                              >
+                                <PencilIcon className="h-4 w-4" />
+                              </button>
+                              {user.role !== 'ADMIN' && (
+                                <button
+                                  type="button"
+                                  onClick={() => setResetUser(user)}
+                                  className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                                  title="Reset password"
+                                >
+                                  <KeyIcon className="h-4 w-4" />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteUser(user)}
+                                disabled={deletingUserId === user.id || user.id === currentUser?.id}
+                                className="rounded-md p-1.5 text-red-500 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                title="Delete user"
+                              >
+                                <TrashIcon className="h-4 w-4" />
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -159,6 +354,11 @@ export default function UsersPage() {
   return (
     <AdminRouteGuard>
       <UsersContent />
+      <PasswordResetModal
+        isOpen={!!resetUser}
+        onClose={() => setResetUser(null)}
+        user={resetUser}
+      />
     </AdminRouteGuard>
   )
 }

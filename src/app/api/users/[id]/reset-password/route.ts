@@ -10,7 +10,7 @@ const resetPasswordSchema = z.object({
   newPassword: z.string().min(8, 'Password must be at least 8 characters long')
 })
 
-// POST /api/users/[id]/reset-password - Reset user password (Users can only reset their own password)
+// POST /api/users/[id]/reset-password - Reset user password (own account or admin)
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -36,8 +36,10 @@ export async function POST(
       )
     }
 
-    // Users can only reset their own password
-    if (decoded.userId !== userId) {
+    const isOwnAccount = decoded.userId === userId
+    const isAdmin = decoded.role === 'ADMIN'
+
+    if (!isOwnAccount && !isAdmin) {
       return NextResponse.json(
         { error: 'You can only reset your own password' },
         { status: 403 }
