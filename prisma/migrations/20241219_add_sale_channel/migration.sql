@@ -1,0 +1,9 @@
+DO $$
+BEGIN
+  CREATE TYPE "SaleChannel" AS ENUM ('IN_STORE', 'ONLINE');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+ALTER TABLE "sales"
+ADD COLUMN IF NOT EXISTS "sale_channel" "SaleChannel" NOT NULL DEFAULT 'IN_STORE';
